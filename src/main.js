@@ -350,7 +350,9 @@ const MOON_POS = MOON_DIR.clone().multiplyScalar(1500);
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(FOG_COL);
 scene.fog = new THREE.FogExp2(FOG_COL, 0.00095);
-const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 7000);
+// 近裁面 0.35（原 0.1）：远/近比从 7 万降到 2 万，远处岸线与水面、山体交叠处的深度精度提高约 3.5 倍，
+// 消除镜头移动时远景的 z-fighting 闪烁。全片最近的镜位离物体也在半米以上，不会被裁切。
+const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.35, 7000);
 camera.position.set(0, 7, 72);
 
 /* ---------- 共享 uniform ---------- */
@@ -669,7 +671,10 @@ function updateBirds(t) {
     const updateOnce = rb.updateBefore.bind(rb);
     let lastTick = -1;
     rb.updateBefore = (frameData) => {
-      if (frameNo % TUNE.reflectionEveryFrames !== 0 || lastTick === frameNo) return;
+      // 镜头在动时复用旧反射，会让灯影、月路在新旧两帧间跳动（闪烁）；画布刚改尺寸时旧反射贴图已被清空（闪一帧黑）。
+      // 所以只在镜头近乎静止、且尺寸未变时才隔帧复用。
+      const skip = frameNo % TUNE.reflectionEveryFrames !== 0 && !camMotion.moved && !camMotion.resized;
+      if (skip || lastTick === frameNo) return;
       lastTick = frameNo;
       return updateOnce(frameData);
     };
@@ -1740,6 +1745,13 @@ const post = new THREE.PostProcessing(renderer);
    镜头脚本：一句一镜
    ========================================================================= */
 const B = V(), F = V(), S = V(), PF = V(0, 0, -1), PB = V();
+// 镜头运动量：反射、阴影是否可以跳帧复用，由它决定
+const camMotion = { moved: true, resized: true, p: V(), q: new THREE.Quaternion() };
+function trackCamera() {
+  const dp = camMotion.p.distanceTo(camera.position), dq = 1 - Math.abs(camMotion.q.dot(camera.quaternion));
+  camMotion.moved = dp > 0.02 || dq > 2e-7;
+  camMotion.p.copy(camera.position); camMotion.q.copy(camera.quaternion);
+}
 const L3 = (a, b, u) => a.clone().lerp(b, u);
 const moonAim = (from, d = 600) => from.clone().addScaledVector(MOON_DIR, d);
 // 始终从东坡身后取景：d 为后退距离，side 为侧移，up 为高度
@@ -1889,11 +1901,11 @@ addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; cam
 
 // 像素比自适应：帧率持续偏低就逐级降采样，长期充裕再升回（上限为画质档位）。
 // 取样窗口 0.7 秒（原 1 秒）：一两拍卡顿就能触发降档；升档要更长的稳定期，避免在阈值上反复抖。
-const prState = { cur: Math.min(devicePixelRatio, TUNE.pixelRatioCap), acc: 0, n: 0, ms: 0, low: 0, high: 0 };
-function applySize() { renderer.setPixelRatio(prState.cur); renderer.setSize(innerWidth, innerHeight, false); syncAspect(); }
+const prState = { cur: Math.min(devicePixelRatio, TUNE.pixelRatioCap), acc: 0, n: 0, ms: 0, low: 0, high: 0, cool: 0 };
+function applySize() { renderer.setPixelRatio(prState.cur); renderer.setSize(innerWidth, innerHeight, false); syncAspect(); camMotion.resized = true; prState.cool = 10; }
 // 画布尺寸有多条变更路径（resize 事件、像素比自适应、内嵌浏览器改视口时可能不发 resize），
 // 相机宽高比必须跟着画布走，否则整幅画面被横向拉伸（月亮成了椭圆）。逐帧比对一次，代价可忽略。
-function syncAspect() { const a = innerWidth / innerHeight; if (Math.abs(camera.aspect - a) > 1e-4) { camera.aspect = a; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight, false); } }
+function syncAspect() { const a = innerWidth / innerHeight; if (Math.abs(camera.aspect - a) > 1e-4) { camera.aspect = a; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight, false); camMotion.resized = true; } }
 
 /* 取景守卫：东坡的机位必须落在他的背面半球。
    他始终朝着月亮（PF 就是脸的方向），机位一旦越过侧面，五官就亮在轮廓上。
@@ -1924,12 +1936,13 @@ if (SHOW_STATS) {
   renderer.info.autoReset = false;
 }
 function adaptResolution(dt, cpuMs) {
-  prState.acc += dt; prState.n++; prState.ms += cpuMs;
+  prState.acc += dt; prState.n++; prState.ms += cpuMs; prState.cool = Math.max(0, prState.cool - dt);
   if (prState.acc < 0.7) return;
   const fps = prState.n / prState.acc, avgCpu = prState.ms / prState.n;
   prState.acc = 0; prState.n = 0; prState.ms = 0;
   const cap = Math.min(devicePixelRatio, TUNE.pixelRatioCap);
-  if (fps < 52 && prState.cur > TUNE.pixelRatioMin) {
+  if (prState.cool > 0) { prState.low = 0; prState.high = 0; }
+  else if (fps < 50 && prState.cur > TUNE.pixelRatioMin) {
     prState.low++; prState.high = 0;
     if (prState.low >= 2) { prState.cur = Math.max(TUNE.pixelRatioMin, prState.cur - 0.25); prState.low = 0; applySize(); }
   } else if (fps > 58 && prState.cur < cap) {
@@ -1981,7 +1994,8 @@ function frame() {
   const shot = SHOTS[dir.idx];
 
   // 月光方向固定，阴影按帧隔重绘；船与人的位移极缓，肉眼无差别
-  if (frameNo % TUNE.shadowEveryFrames === 0) moonLight.shadow.needsUpdate = true;
+  // 近看舟人时阴影逐帧更新，否则船上人影会按 3 帧一跳地抖；远景仍隔帧
+  if (frameNo % TUNE.shadowEveryFrames === 0 || camera.position.distanceTo(B) < 30 || camMotion.resized) moonLight.shadow.needsUpdate = true;
 
   if (!dir.free && dir.playing) { dir.t = Math.min(dir.t + dt, shot.dur); if (dir.t >= shot.dur) goto(dir.idx + 1); }
   const u = clamp01(dir.t / shot.dur);
@@ -2014,6 +2028,7 @@ function frame() {
     dir.look.copy(controls.target);
   }
 
+  trackCamera();
   sky.position.copy(camera.position);
   for (const m of mists) m.rotation.y = Math.atan2(camera.position.x - m.position.x, camera.position.z - m.position.z);
 
@@ -2022,6 +2037,7 @@ function frame() {
   updateBirds(T);
 
   post.render();
+  camMotion.resized = false;
   guardRear();
   // 这里量的是「CPU 把一帧交出去」的耗时（含场景更新与提交绘制命令），不含 GPU 实际画完的时间。
   // 配合 FPS 一起看：若 FPS 对应的帧时长远大于这个数，瓶颈就在 GPU 而不是 JS。
