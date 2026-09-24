@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>水调歌头 · 明月几时有</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@300;400;500;600&family=Source+Sans+3:wght@400;500&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="/src/style.css">
+</head>
+<body>
+<canvas id="c" tabindex="0"></canvas>
+
+<div id="loader"><div class="wrap"><div class="orb"></div><h2>明月几时有</h2><p id="loadmsg">研墨铺纸 · 静候月出</p></div></div>
+
+<header id="brand">
+  <div class="t">水调歌头</div>
+  <div class="a">宋 · 苏轼</div>
+  <div class="seal">東坡</div>
+</header>
+
+<div id="chapter">序 · 江上月</div>
+<div id="edition">一阕宋词 · 一夜江月<span>MOONLIT REVERIE · 1076</span></div>
+<a id="credit" href="https://www.xingor.dev" target="_blank" rel="noopener">CREATED BY <b>XINGOR</b> 行歌</a>
+<section id="verse" aria-live="polite"></section>
+
+<div id="hint">拖拽环视 · 滚轮远近 · 右键平移　—　点「续播」回到镜头</div>
+
+<nav id="bar">
+  <button class="ib" id="prev" title="上一句 (←)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M15 5l-7 7 7 7"/></svg></button>
+  <button class="ib" id="play" title="播放 / 暂停 (空格)"><svg viewBox="0 0 24 24" fill="currentColor"><path id="playIcon" d="M8 5h3v14H8zM13 5h3v14h-3z"/></svg></button>
+  <button class="ib" id="next" title="下一句 (→)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 5l7 7-7 7"/></svg></button>
+  <div class="sep"></div>
+  <div id="ticks"></div>
+  <div class="sep"></div>
+  <button class="txtbtn" id="free" title="自由观赏 (F)">自由观赏</button>
+  <button class="ib" id="sound" title="琴音 (M)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path id="soundWave" d="M16.5 8.5a5 5 0 010 7M19 6a8.5 8.5 0 010 12" opacity=".25"/></svg></button>
+</nav>
+<div id="backend"></div>
+
+<script>
+addEventListener('error', (e) => { const el = document.querySelector('#loadmsg'); if (el) el.textContent = '画面加载异常 · ' + e.message; });
+addEventListener('unhandledrejection', (e) => { const el = document.querySelector('#loadmsg'); if (el) el.textContent = '画面加载异常 · ' + (e.reason?.message || e.reason); });
+</script>
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>
